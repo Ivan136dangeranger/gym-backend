@@ -1,0 +1,35 @@
+
+name: Django Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create environment file
+        run: |
+          cp .env.example .env
+          echo "DJANGO_SECRET_KEY=$(openssl rand -hex 32)" >> .env
+
+      - name: Start Docker services
+        run: |
+          docker compose up -d --build db redis rabbitmq web celery_worker
+
+      - name: Run Django system checks
+        run: |
+          docker compose exec -T web python manage.py check
+
+      - name: Run pytest
+        run: |
+          docker compose exec -T web python -m pytest -v
+
+      - name: Stop containers
+        if: always()
+        run: docker compose down -v
