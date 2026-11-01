@@ -1,4 +1,15 @@
+
 services:
+  tempo:
+    image: grafana/tempo:2.7.2
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/config.yml"]
+    volumes:
+      - ./monitoring/tempo/config.yml:/etc/tempo/config.yml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "127.0.0.1:3200:3200"
+
   celery_worker:
     build: .
     command: celery -A config worker --loglevel=info
@@ -38,6 +49,28 @@ services:
     depends_on:
       - prometheus
 
+  loki:
+    image: grafana/loki:3.5.1
+    restart: unless-stopped
+    command: -config.file=/etc/loki/config.yml
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./monitoring/loki/config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+
+  alloy:
+    image: grafana/alloy:latest
+    restart: unless-stopped
+    command:
+      - run
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+      - tempo
 
   rabbitmq:
     image: rabbitmq:3.13-management
@@ -47,7 +80,10 @@ services:
 
   web:
     build: .
-    command: python manage.py runserver 0.0.0.0:8000
+    command: >
+      opentelemetry-instrument
+      python manage.py runserver 0.0.0.0:8000 --noreload
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
@@ -55,11 +91,22 @@ services:
     env_file:
       - .env
     environment:
+      DJANGO_SETTINGS_MODULE: config.settings
       DB_HOST: db
       DB_PORT: "5432"
+
+      OTEL_SERVICE_NAME: gym-backend-web
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+
     depends_on:
       db:
         condition: service_healthy
+      alloy:
+        condition: service_started
 
   db:
     image: postgres:17
@@ -70,7 +117,9 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
       interval: 5s
       timeout: 5s
       retries: 10
@@ -82,3 +131,5 @@ services:
 volumes:
   postgres_data:
   grafana_data:
+  loki_data:
+  tempo_data:
