@@ -133,7 +133,8 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 
 # Email
@@ -178,3 +179,4 @@ if SENTRY_DSN:
         traces_sample_rate=0.0,
         send_default_pii=False,
     )
+
